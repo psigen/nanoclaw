@@ -166,14 +166,14 @@ function createPreCompactHook(assistantName?: string): HookCallback {
       const name = summary ? sanitizeFilename(summary) : generateFallbackName();
 
       const conversationsDir = '/workspace/group/conversations';
-      fs.mkdirSync(conversationsDir, { recursive: true });
+      fs.mkdirSync(conversationsDir, { recursive: true, mode: 0o777 });
 
       const date = new Date().toISOString().split('T')[0];
       const filename = `${date}-${name}.md`;
       const filePath = path.join(conversationsDir, filename);
 
       const markdown = formatTranscriptMarkdown(messages, summary, assistantName);
-      fs.writeFileSync(filePath, markdown);
+      fs.writeFileSync(filePath, markdown, { mode: 0o666 });
 
       log(`Archived conversation to ${filePath}`);
     } catch (err) {
@@ -275,7 +275,7 @@ function shouldClose(): boolean {
  */
 function drainIpcInput(): string[] {
   try {
-    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
+    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true, mode: 0o777 });
     const files = fs.readdirSync(IPC_INPUT_DIR)
       .filter(f => f.endsWith('.json'))
       .sort();
@@ -489,7 +489,7 @@ async function main(): Promise<void> {
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
   let sessionId = containerInput.sessionId;
-  fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
+  fs.mkdirSync(IPC_INPUT_DIR, { recursive: true, mode: 0o777 });
 
   // Clean up stale _close sentinel from previous container runs
   try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }

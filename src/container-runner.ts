@@ -56,6 +56,23 @@ interface VolumeMount {
   readonly: boolean;
 }
 
+/** Recursively set permissions so rootless Docker containers can access files. */
+function chmodRecursive(dirPath: string): void {
+  try {
+    fs.chmodSync(dirPath, 0o777);
+    for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        chmodRecursive(fullPath);
+      } else {
+        fs.chmodSync(fullPath, 0o666);
+      }
+    }
+  } catch {
+    // Best effort — ignore errors on individual files
+  }
+}
+
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
@@ -121,7 +138,7 @@ function buildVolumeMounts(
     group.folder,
     '.claude',
   );
-  fs.mkdirSync(groupSessionsDir, { recursive: true });
+  fs.mkdirSync(groupSessionsDir, { recursive: true, mode: 0o777 });
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
   if (!fs.existsSync(settingsFile)) {
     fs.writeFileSync(
@@ -143,6 +160,7 @@ function buildVolumeMounts(
         null,
         2,
       ) + '\n',
+      { mode: 0o666 },
     );
   }
 
@@ -155,6 +173,8 @@ function buildVolumeMounts(
       if (!fs.statSync(srcDir).isDirectory()) continue;
       const dstDir = path.join(skillsDst, skillDir);
       fs.cpSync(srcDir, dstDir, { recursive: true });
+      // Ensure copied files are accessible in rootless Docker containers
+      chmodRecursive(dstDir);
     }
   }
   mounts.push({
@@ -166,8 +186,8 @@ function buildVolumeMounts(
   // Per-group IPC namespace: each group gets its own IPC directory
   // This prevents cross-group privilege escalation via IPC
   const groupIpcDir = resolveGroupIpcPath(group.folder);
-  fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
-  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true, mode: 0o777 });
+  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true, mode: 0o777 });
   fs.mkdirSync(path.join(groupIpcDir, 'input'), {
     recursive: true,
     mode: 0o777,
@@ -195,6 +215,7 @@ function buildVolumeMounts(
   );
   if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
     fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+    chmodRecursive(groupAgentRunnerDir);
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
@@ -276,7 +297,7 @@ export async function runContainerAgent(
   const startTime = Date.now();
 
   const groupDir = resolveGroupFolderPath(group.folder);
-  fs.mkdirSync(groupDir, { recursive: true });
+  fs.mkdirSync(groupDir, { recursive: true, mode: 0o777 });
 
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
@@ -307,7 +328,7 @@ export async function runContainerAgent(
   );
 
   const logsDir = path.join(groupDir, 'logs');
-  fs.mkdirSync(logsDir, { recursive: true });
+  fs.mkdirSync(logsDir, { recursive: true, mode: 0o777 });
 
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
@@ -453,6 +474,7 @@ export async function runContainerAgent(
             `Exit Code: ${code}`,
             `Had Streaming Output: ${hadStreamingOutput}`,
           ].join('\n'),
+          { mode: 0o666 },
         );
 
         // Timeout after output = idle cleanup, not failure.
@@ -551,7 +573,7 @@ export async function runContainerAgent(
         );
       }
 
-      fs.writeFileSync(logFile, logLines.join('\n'));
+      fs.writeFileSync(logFile, logLines.join('\n'), { mode: 0o666 });
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 
       if (code !== 0) {
@@ -670,7 +692,7 @@ export function writeTasksSnapshot(
 ): void {
   // Write filtered tasks to the group's IPC directory
   const groupIpcDir = resolveGroupIpcPath(groupFolder);
-  fs.mkdirSync(groupIpcDir, { recursive: true });
+  fs.mkdirSync(groupIpcDir, { recursive: true, mode: 0o777 });
 
   // Main sees all tasks, others only see their own
   const filteredTasks = isMain
@@ -678,7 +700,7 @@ export function writeTasksSnapshot(
     : tasks.filter((t) => t.groupFolder === groupFolder);
 
   const tasksFile = path.join(groupIpcDir, 'current_tasks.json');
-  fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2));
+  fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2), { mode: 0o666 });
 }
 
 export interface AvailableGroup {
@@ -700,7 +722,7 @@ export function writeGroupsSnapshot(
   _registeredJids: Set<string>,
 ): void {
   const groupIpcDir = resolveGroupIpcPath(groupFolder);
-  fs.mkdirSync(groupIpcDir, { recursive: true });
+  fs.mkdirSync(groupIpcDir, { recursive: true, mode: 0o777 });
 
   // Main sees all groups; others see nothing (they can't activate groups)
   const visibleGroups = isMain ? groups : [];
@@ -716,5 +738,6 @@ export function writeGroupsSnapshot(
       null,
       2,
     ),
+    { mode: 0o666 },
   );
 }

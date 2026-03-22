@@ -100,7 +100,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 'Error processing IPC message',
               );
               const errorDir = path.join(ipcBaseDir, 'errors');
-              fs.mkdirSync(errorDir, { recursive: true });
+              fs.mkdirSync(errorDir, { recursive: true, mode: 0o777 });
               fs.renameSync(
                 filePath,
                 path.join(errorDir, `${sourceGroup}-${file}`),
@@ -134,7 +134,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 'Error processing IPC task',
               );
               const errorDir = path.join(ipcBaseDir, 'errors');
-              fs.mkdirSync(errorDir, { recursive: true });
+              fs.mkdirSync(errorDir, { recursive: true, mode: 0o777 });
               fs.renameSync(
                 filePath,
                 path.join(errorDir, `${sourceGroup}-${file}`),
