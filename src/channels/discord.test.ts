@@ -696,8 +696,14 @@ describe('DiscordChannel', () => {
       await channel.sendMessage('dc:1234567890123456', longText);
 
       expect(mockChannel.send).toHaveBeenCalledTimes(2);
-      expect(mockChannel.send).toHaveBeenNthCalledWith(1, 'x'.repeat(2000));
-      expect(mockChannel.send).toHaveBeenNthCalledWith(2, 'x'.repeat(1000));
+      expect(mockChannel.send).toHaveBeenNthCalledWith(1, {
+        content: 'x'.repeat(2000),
+        files: undefined,
+      });
+      expect(mockChannel.send).toHaveBeenNthCalledWith(2, {
+        content: 'x'.repeat(1000),
+        files: undefined,
+      });
     });
   });
 

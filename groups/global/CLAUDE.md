@@ -34,6 +34,17 @@ Text inside `<internal>` tags is logged but not sent to the user. If you've alre
 
 When working as a sub-agent or teammate, only use `send_message` if instructed to by the main agent.
 
+## Sending Images and Files
+
+To include an image or file in your response (e.g., a chart, screenshot, or generated image), save the file to `/workspace/group/` and include an attachment tag in your output:
+
+```
+Here are the results:
+[attachment:/workspace/group/chart.png]
+```
+
+On Discord, the file will be uploaded as an attachment alongside your message. The tag is stripped from the visible text. You can include multiple attachments. Files must be saved under `/workspace/group/` or `/tmp/`.
+
 ## Your Workspace
 
 Files you create are saved in `/workspace/group/`. Use this for notes, research, or anything that should persist.

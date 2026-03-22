@@ -1,12 +1,15 @@
 import {
+  AttachmentBuilder,
   Client,
   Events,
   GatewayIntentBits,
   Message,
   TextChannel,
 } from 'discord.js';
+import fs from 'fs';
+import path from 'path';
 
-import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import { ASSISTANT_NAME, GROUPS_DIR, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
@@ -207,16 +210,60 @@ export class DiscordChannel implements Channel {
 
       const textChannel = channel as TextChannel;
 
-      // Discord has a 2000 character limit per message — split if needed
-      const MAX_LENGTH = 2000;
-      if (text.length <= MAX_LENGTH) {
-        await textChannel.send(text);
-      } else {
-        for (let i = 0; i < text.length; i += MAX_LENGTH) {
-          await textChannel.send(text.slice(i, i + MAX_LENGTH));
+      // Extract [attachment:path] tags and resolve to host file paths
+      const attachmentPattern = /\[attachment:([^\]]+)\]/g;
+      const attachments: AttachmentBuilder[] = [];
+      let cleanText = text;
+
+      let match;
+      while ((match = attachmentPattern.exec(text)) !== null) {
+        const filePath = match[1].trim();
+        const resolved = resolveAttachmentPath(filePath);
+        if (resolved && fs.existsSync(resolved)) {
+          attachments.push(new AttachmentBuilder(resolved));
+          logger.debug({ jid, file: resolved }, 'Discord attachment resolved');
+        } else {
+          logger.warn(
+            { jid, file: filePath },
+            'Discord attachment not found or outside allowed paths',
+          );
         }
       }
-      logger.info({ jid, length: text.length }, 'Discord message sent');
+      cleanText = cleanText.replace(attachmentPattern, '').trim();
+
+      // Discord has a 2000 character limit per message — split if needed
+      const MAX_LENGTH = 2000;
+      if (cleanText.length <= MAX_LENGTH) {
+        await textChannel.send({
+          content: cleanText || undefined,
+          files: attachments.length > 0 ? attachments : undefined,
+        });
+      } else {
+        // Send text in chunks, attach files to the last chunk
+        const chunks: string[] = [];
+        let remaining = cleanText;
+        while (remaining.length > 0) {
+          if (remaining.length <= MAX_LENGTH) {
+            chunks.push(remaining);
+            break;
+          }
+          let splitIdx = remaining.lastIndexOf('\n', MAX_LENGTH);
+          if (splitIdx <= 0) splitIdx = MAX_LENGTH;
+          chunks.push(remaining.slice(0, splitIdx));
+          remaining = remaining.slice(splitIdx).replace(/^\n/, '');
+        }
+        for (let i = 0; i < chunks.length; i++) {
+          const isLast = i === chunks.length - 1;
+          await textChannel.send({
+            content: chunks[i],
+            files: isLast && attachments.length > 0 ? attachments : undefined,
+          });
+        }
+      }
+      logger.info(
+        { jid, length: text.length, attachments: attachments.length },
+        'Discord message sent',
+      );
     } catch (err) {
       logger.error({ jid, err }, 'Failed to send Discord message');
     }
@@ -250,6 +297,57 @@ export class DiscordChannel implements Channel {
       logger.debug({ jid, err }, 'Failed to send Discord typing indicator');
     }
   }
+}
+
+/**
+ * Resolve an attachment path from container-relative to host-absolute.
+ * Container agents write files to /workspace/group/ which maps to groups/{folder}/ on the host.
+ * Only allows files under the groups/ directory for security.
+ */
+function resolveAttachmentPath(filePath: string): string | null {
+  // Container path: /workspace/group/filename.png → groups/{folder}/filename.png
+  // The agent may also output a host-absolute path if it knows it.
+  let resolved: string;
+
+  if (filePath.startsWith('/workspace/group/')) {
+    // Container-relative path — we can't know the exact group folder from here,
+    // but the file will be in one of the groups/ subdirectories.
+    // Search for it across all group folders.
+    const relativePart = filePath.slice('/workspace/group/'.length);
+    const groupDirs = fs.readdirSync(GROUPS_DIR).filter((d) => {
+      try {
+        return fs.statSync(path.join(GROUPS_DIR, d)).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+    for (const dir of groupDirs) {
+      const candidate = path.join(GROUPS_DIR, dir, relativePart);
+      if (fs.existsSync(candidate)) {
+        resolved = candidate;
+        break;
+      }
+    }
+    if (!resolved!) return null;
+  } else if (path.isAbsolute(filePath)) {
+    resolved = filePath;
+  } else {
+    // Relative path — treat as relative to groups/
+    resolved = path.resolve(GROUPS_DIR, filePath);
+  }
+
+  // Security: only allow files under groups/ or /tmp/
+  const realPath = fs.realpathSync(resolved);
+  const realGroups = fs.realpathSync(GROUPS_DIR);
+  if (!realPath.startsWith(realGroups) && !realPath.startsWith('/tmp/')) {
+    logger.warn(
+      { filePath, resolved: realPath },
+      'Attachment path outside allowed directories',
+    );
+    return null;
+  }
+
+  return realPath;
 }
 
 registerChannel('discord', (opts: ChannelOpts) => {
