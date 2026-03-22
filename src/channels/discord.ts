@@ -11,7 +11,9 @@ import path from 'path';
 
 import { ASSISTANT_NAME, GROUPS_DIR, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
+import { downloadImage, processImage } from '../image.js';
 import { logger } from '../logger.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
@@ -95,22 +97,51 @@ export class DiscordChannel implements Channel {
         }
       }
 
-      // Handle attachments — store placeholders so the agent knows something was sent
+      // Handle attachments — download images for vision, placeholder for others
       if (message.attachments.size > 0) {
-        const attachmentDescriptions = [...message.attachments.values()].map(
-          (att) => {
-            const contentType = att.contentType || '';
-            if (contentType.startsWith('image/')) {
-              return `[Image: ${att.name || 'image'}]`;
-            } else if (contentType.startsWith('video/')) {
-              return `[Video: ${att.name || 'video'}]`;
-            } else if (contentType.startsWith('audio/')) {
-              return `[Audio: ${att.name || 'audio'}]`;
-            } else {
-              return `[File: ${att.name || 'file'}]`;
+        const group = this.opts.registeredGroups()[chatJid];
+        const attachmentDescriptions: string[] = [];
+
+        for (const att of message.attachments.values()) {
+          const contentType = att.contentType || '';
+          if (contentType.startsWith('image/') && att.url && group) {
+            // Download and process image for vision
+            try {
+              const groupDir = resolveGroupFolderPath(group.folder);
+              const buffer = await downloadImage(att.url);
+              const result = await processImage(
+                buffer,
+                groupDir,
+                att.name || '',
+              );
+              if (result) {
+                attachmentDescriptions.push(result.content);
+                logger.info(
+                  { chatJid, file: result.relativePath },
+                  'Discord image attachment processed',
+                );
+                continue;
+              }
+            } catch (err) {
+              logger.warn(
+                { chatJid, name: att.name, err },
+                'Failed to process Discord image attachment',
+              );
             }
-          },
-        );
+            // Fallback to placeholder if download/processing failed
+            attachmentDescriptions.push(`[Image: ${att.name || 'image'}]`);
+          } else if (contentType.startsWith('image/')) {
+            // No registered group or no URL — just use placeholder
+            attachmentDescriptions.push(`[Image: ${att.name || 'image'}]`);
+          } else if (contentType.startsWith('video/')) {
+            attachmentDescriptions.push(`[Video: ${att.name || 'video'}]`);
+          } else if (contentType.startsWith('audio/')) {
+            attachmentDescriptions.push(`[Audio: ${att.name || 'audio'}]`);
+          } else {
+            attachmentDescriptions.push(`[File: ${att.name || 'file'}]`);
+          }
+        }
+
         if (content) {
           content = `${content}\n${attachmentDescriptions.join('\n')}`;
         } else {

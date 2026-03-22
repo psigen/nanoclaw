@@ -12,6 +12,21 @@ vi.mock('../env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
 vi.mock('../config.js', () => ({
   ASSISTANT_NAME: 'Andy',
   TRIGGER_PATTERN: /^@Andy\b/i,
+  GROUPS_DIR: '/tmp/test-groups',
+}));
+
+// Mock image processing
+vi.mock('../image.js', () => ({
+  downloadImage: vi.fn(async () => Buffer.from('fake-image')),
+  processImage: vi.fn(async (_buf: Buffer, _dir: string, caption: string) => ({
+    content: `[Image: attachments/img-test.jpg] ${caption}`.trim(),
+    relativePath: 'attachments/img-test.jpg',
+  })),
+}));
+
+// Mock group folder
+vi.mock('../group-folder.js', () => ({
+  resolveGroupFolderPath: vi.fn(() => '/tmp/test-groups/test'),
 }));
 
 // Mock logger
