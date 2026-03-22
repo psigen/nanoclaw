@@ -204,6 +204,16 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Mount shared credentials directory (for skills that need external API access)
+  const credentialsDir = path.join(DATA_DIR, 'credentials');
+  if (fs.existsSync(credentialsDir)) {
+    mounts.push({
+      hostPath: credentialsDir,
+      containerPath: '/workspace/credentials',
+      readonly: true,
+    });
+  }
+
   // Copy agent-runner source into a per-group writable location so agents
   // can customize it (add tools, change behavior) without affecting other
   // groups. Recompiled on container startup via entrypoint.sh.
