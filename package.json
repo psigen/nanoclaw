@@ -21,8 +21,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@google-cloud/pubsub": "^5.3.0",
     "better-sqlite3": "^11.8.1",
     "cron-parser": "^5.5.0",
+    "googleapis": "^171.4.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
     "yaml": "^2.8.2",

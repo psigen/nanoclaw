@@ -5,6 +5,9 @@
 
 // gmail
 
+// google-chat
+import './googlechat.js';
+
 // slack
 
 // telegram
