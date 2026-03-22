@@ -24,7 +24,10 @@ import {
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
+  isRootlessDocker,
   PROXY_BIND_HOST,
+  startProxySidecar,
+  stopProxySidecar,
 } from './container-runtime.js';
 import {
   getAllChats,
@@ -467,6 +470,9 @@ function recoverPendingMessages(): void {
 function ensureContainerSystemRunning(): void {
   ensureContainerRuntimeRunning();
   cleanupOrphans();
+  if (isRootlessDocker()) {
+    startProxySidecar(CREDENTIAL_PROXY_PORT);
+  }
 }
 
 async function main(): Promise<void> {
@@ -486,6 +492,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
     proxyServer.close();
+    if (isRootlessDocker()) stopProxySidecar();
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
