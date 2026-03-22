@@ -108,7 +108,8 @@ class GoogleChatChannel implements Channel {
     const messageName = message.name as string; // e.g. "spaces/AAAA123/messages/MSG123"
     const senderName =
       (sender.displayName as string) || (sender.name as string) || 'Unknown';
-    const senderEmail = (sender.email as string) || (sender.name as string) || '';
+    const senderEmail =
+      (sender.email as string) || (sender.name as string) || '';
     const isBot = sender.type === 'BOT';
     const createTime =
       (message.createTime as string) || new Date().toISOString();
@@ -173,7 +174,8 @@ class GoogleChatChannel implements Channel {
   async syncGroups(force: boolean): Promise<void> {
     try {
       const res = await this.chat.spaces.list({
-        filter: 'spaceType = "SPACE" OR spaceType = "GROUP_CHAT" OR spaceType = "DIRECT_MESSAGE"',
+        filter:
+          'spaceType = "SPACE" OR spaceType = "GROUP_CHAT" OR spaceType = "DIRECT_MESSAGE"',
       });
 
       const spaces = res.data.spaces || [];
@@ -229,8 +231,7 @@ registerChannel('googlechat', (opts: ChannelOpts) => {
   const projectId =
     process.env.GOOGLE_CHAT_PROJECT_ID || env.GOOGLE_CHAT_PROJECT_ID;
   const subscriptionId =
-    process.env.GOOGLE_CHAT_SUBSCRIPTION_ID ||
-    env.GOOGLE_CHAT_SUBSCRIPTION_ID;
+    process.env.GOOGLE_CHAT_SUBSCRIPTION_ID || env.GOOGLE_CHAT_SUBSCRIPTION_ID;
 
   if (!keyPath || !projectId || !subscriptionId) {
     return null; // Credentials missing — skip channel
