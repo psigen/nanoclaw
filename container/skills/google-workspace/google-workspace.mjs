@@ -22,6 +22,7 @@ import fs from 'fs';
 import path from 'path';
 
 const CREDENTIALS_PATH = '/workspace/credentials/google-workspace.json';
+const SHARED_DRIVE_ID = '0AId_frf-R24EUk9PVA'; // Claw-001 Shared Drive
 
 function loadAuth() {
   if (!fs.existsSync(CREDENTIALS_PATH)) {
@@ -44,6 +45,30 @@ function loadAuth() {
   return auth;
 }
 
+/**
+ * Move a newly created file into the Shared Drive.
+ * Docs/Sheets/Slides APIs create files in the service account's root,
+ * then we move them into the Shared Drive so they're accessible.
+ */
+async function moveToSharedDrive(fileId) {
+  const drive = google.drive({ version: 'v3' });
+  // Get current parents
+  const file = await drive.files.get({
+    fileId,
+    fields: 'parents',
+    supportsAllDrives: true,
+  });
+  const previousParents = (file.data.parents || []).join(',');
+  // Move to Shared Drive root
+  await drive.files.update({
+    fileId,
+    addParents: SHARED_DRIVE_ID,
+    removeParents: previousParents,
+    supportsAllDrives: true,
+    fields: 'id, parents',
+  });
+}
+
 function parseArgs(args) {
   const result = {};
   for (let i = 0; i < args.length; i++) {
@@ -63,11 +88,17 @@ async function createDoc(opts) {
 
   const title = opts.title || 'Untitled Document';
 
-  const res = await docs.documents.create({
-    requestBody: { title },
+  // Create via Drive API directly in Shared Drive (service accounts have no personal quota)
+  const res = await drive.files.create({
+    supportsAllDrives: true,
+    requestBody: {
+      name: title,
+      mimeType: 'application/vnd.google-apps.document',
+      parents: [SHARED_DRIVE_ID],
+    },
   });
 
-  const docId = res.data.documentId;
+  const docId = res.data.id;
 
   if (opts.content) {
     await docs.documents.batchUpdate({
@@ -85,15 +116,6 @@ async function createDoc(opts) {
     });
   }
 
-  // Make it accessible via link (anyone with link can view)
-  await drive.permissions.create({
-    fileId: docId,
-    requestBody: {
-      role: 'reader',
-      type: 'anyone',
-    },
-  });
-
   const url = `https://docs.google.com/document/d/${docId}/edit`;
   console.log(JSON.stringify({ success: true, docId, url, title }, null, 2));
 }
@@ -105,13 +127,17 @@ async function createSheet(opts) {
 
   const title = opts.title || 'Untitled Spreadsheet';
 
-  const res = await sheets.spreadsheets.create({
+  // Create via Drive API directly in Shared Drive
+  const res = await drive.files.create({
+    supportsAllDrives: true,
     requestBody: {
-      properties: { title },
+      name: title,
+      mimeType: 'application/vnd.google-apps.spreadsheet',
+      parents: [SHARED_DRIVE_ID],
     },
   });
 
-  const sheetId = res.data.spreadsheetId;
+  const sheetId = res.data.id;
 
   if (opts.data) {
     const data = JSON.parse(opts.data);
@@ -122,15 +148,6 @@ async function createSheet(opts) {
       requestBody: { values: data },
     });
   }
-
-  // Make it accessible via link
-  await drive.permissions.create({
-    fileId: sheetId,
-    requestBody: {
-      role: 'reader',
-      type: 'anyone',
-    },
-  });
 
   const url = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
   console.log(JSON.stringify({ success: true, sheetId, url, title }, null, 2));
@@ -598,6 +615,7 @@ async function renameFile(opts) {
   await drive.files.update({
     fileId: opts['file-id'],
     requestBody: { name: opts.name },
+    supportsAllDrives: true,
   });
 
   console.log(JSON.stringify({
@@ -618,15 +636,10 @@ async function copyFile(opts) {
 
   const res = await drive.files.copy({
     fileId: opts['file-id'],
+    supportsAllDrives: true,
     requestBody: {
       name: opts.name || undefined,
     },
-  });
-
-  // Make copy accessible via link
-  await drive.permissions.create({
-    fileId: res.data.id,
-    requestBody: { role: 'reader', type: 'anyone' },
   });
 
   console.log(JSON.stringify({
@@ -646,7 +659,7 @@ async function deleteFile(opts) {
     process.exit(1);
   }
 
-  await drive.files.delete({ fileId: opts['file-id'] });
+  await drive.files.delete({ fileId: opts['file-id'], supportsAllDrives: true });
 
   console.log(JSON.stringify({
     success: true,
@@ -692,6 +705,7 @@ async function getFileInfo(opts) {
   const res = await drive.files.get({
     fileId: opts['file-id'],
     fields: 'id, name, mimeType, webViewLink, createdTime, modifiedTime, size, owners, permissions',
+    supportsAllDrives: true,
   });
 
   const f = res.data;
@@ -725,6 +739,7 @@ async function shareFile(opts) {
 
   await drive.permissions.create({
     fileId: opts['file-id'],
+    supportsAllDrives: true,
     sendNotificationEmail: true,
     requestBody: {
       role,
@@ -757,6 +772,7 @@ async function transferOwnership(opts) {
   try {
     await drive.permissions.create({
       fileId: opts['file-id'],
+      supportsAllDrives: true,
       transferOwnership: true,
       sendNotificationEmail: true,
       requestBody: {
@@ -797,11 +813,17 @@ async function createSlides(opts) {
 
   const title = opts.title || 'Untitled Presentation';
 
-  const res = await slides.presentations.create({
-    requestBody: { title },
+  // Create via Drive API directly in Shared Drive
+  const res = await drive.files.create({
+    supportsAllDrives: true,
+    requestBody: {
+      name: title,
+      mimeType: 'application/vnd.google-apps.presentation',
+      parents: [SHARED_DRIVE_ID],
+    },
   });
 
-  const presentationId = res.data.presentationId;
+  const presentationId = res.data.id;
 
   if (opts.slides) {
     const slideData = JSON.parse(opts.slides);
@@ -845,12 +867,6 @@ async function createSlides(opts) {
       });
     }
   }
-
-  // Make it accessible via link
-  await drive.permissions.create({
-    fileId: presentationId,
-    requestBody: { role: 'reader', type: 'anyone' },
-  });
 
   const url = `https://docs.google.com/presentation/d/${presentationId}/edit`;
   console.log(JSON.stringify({ success: true, presentationId, url, title }, null, 2));
@@ -959,6 +975,9 @@ async function listFiles(opts) {
     fields: 'files(id, name, mimeType, webViewLink, createdTime, modifiedTime)',
     orderBy: 'modifiedTime desc',
     pageSize: 20,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+    corpora: 'allDrives',
   });
 
   const files = (res.data.files || []).map((f) => ({
